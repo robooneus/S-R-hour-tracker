@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Work Time</title>
+<style>
+:root{--bg:#f6f6f4;--card:#fff;--tx:#1a1a1a;--mu:#777;--ac:#2563eb;--ln:#e4e4e0;--ok:#15803d;--bad:#b91c1c;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#141414;--card:#1e1e1e;--tx:#eee;--mu:#999;--ac:#5b8def;--ln:#333;--ok:#4ade80;--bad:#f87171}}
+:root[data-theme="dark"]{--bg:#141414;--card:#1e1e1e;--tx:#eee;--mu:#999;--ac:#5b8def;--ln:#333;--ok:#4ade80;--bad:#f87171}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px system-ui,sans-serif;display:flex;justify-content:center}
+main{width:100%;max-width:440px;padding:16px}
+.card{background:var(--card);border:1px solid var(--ln);border-radius:14px;padding:16px;margin-bottom:14px}
+.bal{text-align:center}.bal b{font-size:56px;line-height:1}.bal small{display:block;color:var(--mu);margin-top:6px}
+.bar{height:8px;background:var(--ln);border-radius:4px;margin-top:12px;overflow:hidden}.bar i{display:block;height:100%;background:var(--ac)}
+label{display:block;color:var(--mu);font-size:13px;margin:10px 0 4px}
+input{width:100%;font:inherit;padding:12px;border:1px solid var(--ln);border-radius:10px;background:var(--bg);color:var(--tx)}
+#h{font-size:28px;text-align:center}
+.seg{display:flex;gap:8px}.seg button{flex:1;padding:12px;border:1px solid var(--ln);border-radius:10px;background:var(--bg);color:var(--tx);font:inherit}
+.seg button.on{background:var(--ac);color:#fff;border-color:var(--ac)}
+#save{width:100%;margin-top:14px;padding:14px;font:inherit;font-size:18px;border:0;border-radius:10px;background:var(--ac);color:#fff}
+.row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-top:1px solid var(--ln);cursor:pointer}
+.row:first-child{border-top:0}.row span{color:var(--mu);font-size:13px}
+.p{color:var(--ok)}.n{color:var(--bad)}
+.sec{width:100%;margin-top:12px;padding:12px;font:inherit;border:1px solid var(--ln);border-radius:10px;background:var(--bg);color:var(--tx)}
+.set{display:flex;gap:10px}.set div{flex:1}
+</style>
+</head>
+<body>
+<main>
+  <div class="card bal"><b id="bal">0</b><small id="sub"></small><div class="bar"><i id="fill"></i></div></div>
+
+  <div class="card">
+    <label>Date</label><input type="date" id="d">
+    <div class="set"><div><label>Start</label><input type="time" id="s"></div><div><label>End</label><input type="time" id="e"></div></div>
+    <label>Hours worked (auto from start/end, editable)</label><input id="h" inputmode="decimal" placeholder="8.0" autocomplete="off">
+    <label>Location</label>
+    <div class="seg"><button data-l="Office" class="on">Office</button><button data-l="Home">Home</button><button data-l="Off">Day off</button></div>
+    <button id="save">Save</button>
+    <button id="del" class="sec" hidden style="color:var(--bad)">Delete this entry</button>
+  </div>
+
+  <div class="card" id="list"></div>
+
+  <div class="card">
+    <div class="set">
+      <div><label>Daily target (h)</label><input id="tg" inputmode="decimal"></div>
+      <div><label>Cap (h)</label><input id="cp" inputmode="decimal"></div>
+    </div>
+    <label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="fl" style="width:auto"> Balance can't go below 0</label>
+    <button id="exp" class="sec">Export CSV</button>
+    <label>Target applies Mon–Fri (weekends 0). Weekdays with no entry count as 0 hours worked, so a Friday off deducts automatically. Use "Day off" for holidays/sick days that shouldn't cost overtime. Tap an entry to edit it.</label>
+  </div>
+</main>
+<script>
+const K='worktime.v1';var LAST=[];
+let S={entries:{},target:4,cap:32,floor:false},loc='Office';
+try{const r=localStorage.getItem(K);if(r)S=Object.assign(S,JSON.parse(r))}catch(e){}
+const $=id=>document.getElementById(id);
+const save=()=>{try{localStorage.setItem(K,JSON.stringify(S))}catch(e){}};
+const today=()=>{const t=new Date();return new Date(t-t.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+const parse=s=>{s=s.trim().replace(',','.');if(/^\d+:\d{1,2}$/.test(s)){const[a,b]=s.split(':');return +a+ +b/60}const v=parseFloat(s);return isNaN(v)?null:v};
+const fmt=v=>(Math.round(v*100)/100).toString();
+const tgt=d=>{const w=new Date(d+'T12:00:00').getDay();return(w===0||w===6)?0:S.target};
+
+function render(){
+  const iso=t=>new Date(t-t.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+  const ks=Object.keys(S.entries).sort();let b=0;const rows=[];
+  if(ks.length){const y=new Date();y.setDate(y.getDate()-1);const end=[ks[ks.length-1],iso(y)].sort().pop();
+    for(let t=new Date(ks[0]+'T12:00:00');iso(t)<=end;t.setDate(t.getDate()+1)){const d=iso(t),w=t.getDay();let e=S.entries[d];
+      if(!e){if(w===0||w===6)continue;e={h:0,l:'Not worked'}}
+      const delta=e.l==='Off'?0:e.h-tgt(d);b=Math.min(S.cap,b+delta);if(S.floor)b=Math.max(0,b);rows.push({d,e,delta,b})}}
+  LAST=rows.slice();$('bal').textContent=fmt(b)+' h';$('bal').className=b<0?'n':'';
+  $('sub').textContent='of '+S.cap+' h cap'+(b>=S.cap?' · at cap':'');
+  $('fill').style.width=Math.max(0,Math.min(100,b/S.cap*100))+'%';
+  $('list').innerHTML=rows.length?rows.reverse().slice(0,30).map(r=>
+    `<div class="row" data-d="${r.d}"><div>${r.d}<br><span>${r.e.l} · ${fmt(r.e.h)} h${r.e.s?' · '+r.e.s+'–'+r.e.e:''}</span></div><div style="text-align:right"><b class="${r.delta>=0?'p':'n'}">${r.delta>=0?'+':''}${fmt(r.delta)}</b><br><span>${fmt(r.b)} h</span></div></div>`).join(''):'<span style="color:var(--mu)">No entries yet.</span>';
+  $('del').hidden=!S.entries[$('d').value];$('tg').value=S.target;$('cp').value=S.cap;$('fl').checked=S.floor;
+}
+document.querySelectorAll('.seg button').forEach(b=>b.onclick=()=>{loc=b.dataset.l;document.querySelectorAll('.seg button').forEach(x=>x.classList.toggle('on',x===b))});
+$('save').onclick=()=>{const h=loc==='Off'?0:parse($('h').value),d=$('d').value;if(h===null||!d){$('h').focus();return}
+  S.entries[d]={h,l:loc,s:$('s').value,e:$('e').value};save();$('h').value='';$('s').value='';$('e').value='';
+  const n=new Date(d+'T12:00:00');n.setDate(n.getDate()+1);$('d').value=new Date(n-n.getTimezoneOffset()*6e4).toISOString().slice(0,10)>today()?today():new Date(n-n.getTimezoneOffset()*6e4).toISOString().slice(0,10);render()};
+$('h').addEventListener('keydown',e=>{if(e.key==='Enter')$('save').click()});
+const mins=v=>{if(!v)return null;const[a,b]=v.split(':');return +a*60+ +b};
+function calc(){const s=mins($('s').value),e=mins($('e').value);if(s===null||e===null)return;let m=e-s;if(m<0)m+=1440;let h=m/60;if(h>6)h-=0.5;$('h').value=fmt(h)}
+$('s').oninput=calc;$('e').oninput=calc;
+$('d').onchange=()=>{$('del').hidden=!S.entries[$('d').value]};
+$('del').onclick=()=>{const d=$('d').value;if(S.entries[d]&&confirm('Delete entry for '+d+'?')){delete S.entries[d];save();$('h').value='';$('s').value='';$('e').value='';render()}};
+$('exp').onclick=async()=>{
+  if(!LAST.length){alert('No entries to export.');return}
+  const L=[['Date','Type','Start','End','Hours','Target','Delta','Balance'].join(',')];
+  LAST.forEach(r=>L.push([r.d,r.e.l==='Off'?'Day off':r.e.l,r.e.s||'',r.e.e||'',fmt(r.e.h),fmt(r.e.l==='Off'?0:tgt(r.d)),fmt(r.delta),fmt(r.b)].join(',')));
+  try{const dl=await claude.use('downloads');if(!dl){alert('Export is not available in this view.');return}
+    await dl.save({filename:'worktime-'+today()+'.csv',data:L.join('\n')})}
+  catch(e){if(!e||e.code!=='declined')alert('Export failed.')}};
+$('list').onclick=e=>{const r=e.target.closest('.row');if(!r)return;const d=r.dataset.d,x=S.entries[d]||{h:0,l:'Office'};
+  {$('d').value=d;$('h').value=x.h;$('s').value=x.s||'';$('e').value=x.e||'';loc=x.l;document.querySelectorAll('.seg button').forEach(b=>b.classList.toggle('on',b.dataset.l===loc));$('h').focus()}
+  $('del').hidden=!S.entries[d];window.scrollTo(0,0)};
+$('tg').onchange=()=>{const v=parse($('tg').value);if(v!==null){S.target=v;save();render()}};
+$('cp').onchange=()=>{const v=parse($('cp').value);if(v!==null){S.cap=v;save();render()}};
+$('fl').onchange=()=>{S.floor=$('fl').checked;save();render()};
+$('d').value=today();render();
+</script>
+</body>
+</html>
